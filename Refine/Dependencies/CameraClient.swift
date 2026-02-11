@@ -8,7 +8,7 @@
 import ComposableArchitecture
 import Foundation
 import AVFoundation
-import ComposableArchitecture
+import Photos
 
 @DependencyClient
 struct CameraClient {
@@ -17,6 +17,7 @@ struct CameraClient {
     var setZoom: @Sendable (CGFloat) async -> Void
     var capture: @Sendable () async throws -> Data
     var getSession: @Sendable () -> AVCaptureSession = { AVCaptureSession() }
+    var saveToPhotoLibrary: @Sendable (Data) async throws -> Void
 }
 
 extension DependencyValues {
@@ -52,8 +53,26 @@ extension CameraClient: DependencyKey {
             },
             getSession: {
                 sharedController.session
+            },
+            saveToPhotoLibrary: { data in
+                try await savePhotoToLibrary(data)
             }
         )
+    }
+   
+    // 사진을 Photo Library에 저장
+    private static func savePhotoToLibrary(_ imageData: Data) async throws {
+        // Photo Library 권한 요청
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+
+        guard status == .authorized || status == .limited else {
+            throw CameraError.photoLibraryPermissionDenied
+        }
+
+        try await PHPhotoLibrary.shared().performChanges {
+            let creationRequest = PHAssetCreationRequest.forAsset()
+            creationRequest.addResource(with: .photo, data: imageData, options: nil)
+        }
     }
 }
 
@@ -62,4 +81,5 @@ enum CameraError: Error {
   case cannotAddInput
   case cannotAddOutput
   case captureFailed
+  case photoLibraryPermissionDenied
 }

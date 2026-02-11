@@ -26,6 +26,7 @@ struct CameraFeature {
         case permissionResult(Bool)
         case sessionStarted
         case captureResult(Result<Data, Error>)
+        case photoSaved(Result<Void, Error>)
     }
     
     @Dependency(\.cameraClient) var cameraClient
@@ -70,12 +71,30 @@ struct CameraFeature {
                         await send(.captureResult(.failure(error)))
                     }
                 }
+
             case .captureResult(.success(let data)):
                 state.lastCaptureSize = data.count
-                return .none
-                
+
+                return .run { send in
+                    // 사진 저장
+                    do {
+                        try await cameraClient.saveToPhotoLibrary(data)
+                        await send(.photoSaved(.success(())))
+                    } catch {
+                        await send(.photoSaved(.failure(error)))
+                    }
+                }
+
             case .captureResult(.failure(let error)):
                 print("❌ capture error:", error)
+                return .none
+
+            case .photoSaved(.success):
+                print("✅ 사진이 카메라롤에 저장되었습니다")
+                return .none
+
+            case .photoSaved(.failure(let error)):
+                print("❌ 사진 저장 실패:", error)
                 return .none
             }
         }

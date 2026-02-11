@@ -12,19 +12,27 @@ import ComposableArchitecture
 struct CameraView: View {
     let store: StoreOf<CameraFeature>
     @Dependency(\.cameraClient) var cameraClient
-
+    @State private var showFlash: Bool = false
+    
     var body: some View {
 
         ZStack {
             CameraPreviewView(session: cameraClient.getSession())
                 .ignoresSafeArea()
-            
+
+            // 플래시 효과
+            if showFlash {
+                Color.white.opacity(0.6)
+                    .ignoresSafeArea()
+            }
+
             VStack {
                 Spacer()
                 zoomButtons
                 shutterButton
             }
         }
+        .animation(.easeOut(duration: 0.1), value: showFlash)
         .onAppear {
             store.send(.onAppear)
         }
@@ -48,6 +56,17 @@ struct CameraView: View {
     private var shutterButton: some View {
         Button {
             store.send(.shutterTapped)
+            
+            Task {
+                withAnimation(.easeOut.speed(0.1)) {
+                    showFlash = true
+                }
+                try await Task.sleep(nanoseconds: 100_000_000)
+                withAnimation(.easeIn) {
+                    showFlash = false
+                }
+            }
+            
         } label: {
             Circle()
                 .strokeBorder(.white, lineWidth: 4)
