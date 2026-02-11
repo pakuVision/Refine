@@ -56,7 +56,7 @@ extension CameraClient: DependencyKey {
             },
 
             capture: {
-                try await sharedController.capture()
+                try await sharedController.captureProcessed()
             },
 
             getSession: {

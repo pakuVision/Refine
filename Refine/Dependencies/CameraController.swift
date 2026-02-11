@@ -31,6 +31,9 @@ final class CameraController {
 
     private let sessionQueue = DispatchQueue(label: "camera.session.queue")
 
+    private let processor = AppleAIImageProcessor()
+    private let visionProcessor = VisionNeuralProcessor()
+
     func start() async throws {
         discoverDevices()
 
@@ -161,7 +164,28 @@ final class CameraController {
     }
 
     // MARK: - Capture
-
+    
+    /// 원본 캡처 (처리 없음)
+    func captureRaw() async throws -> Data {
+        return try await capture()
+    }
+    
+    /// 캡처 + 자동 처리
+    func captureProcessed() async throws -> Data {
+        print("📸 CameraController.captureProcessed() 호출됨")
+        
+        // 1. 원본 캡처
+        let rawData = try await capture()
+        print("📸 원본 캡처 완료: \(rawData.count) bytes")
+        
+        // 2. 이미지 처리
+        print("🎨 이미지 처리 시작...")
+        let processedData = try await visionProcessor.process(rawData)
+        print("✅ 이미지 처리 완료: \(processedData.count) bytes")
+        
+        return processedData
+    }
+    
     func capture() async throws -> Data {
         print("📸 CameraController.capture() 호출됨")
         print("📸 세션 실행 중: \(session.isRunning)")
