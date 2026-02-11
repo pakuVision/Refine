@@ -37,8 +37,8 @@
 		FAAA6F9B2F39F1E100BAB493 = {
 			isa = PBXGroup;
 			children = (
-				FAAA6FA62F39F1E100BAB493 /* Refine */,
 				FAAA6FA52F39F1E100BAB493 /* Products */,
+				FAAA6FA62F39F1E100BAB493 /* Refine */,
 			);
 			sourceTree = "<group>";
 		};
@@ -267,6 +267,8 @@
 				DEVELOPMENT_TEAM = WXXH24N45W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "写真を撮影するためにカメラへのアクセスが必要です。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "撮影した写真を写真アプリに保存するために必要です。\n撮影した写真を写真アプリに保存するために必要です。\n撮影した写真を写真アプリに保存するために必要です。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -299,6 +301,8 @@
 				DEVELOPMENT_TEAM = WXXH24N45W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "写真を撮影するためにカメラへのアクセスが必要です。";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "撮影した写真を写真アプリに保存するために必要です。\n撮影した写真を写真アプリに保存するために必要です。\n撮影した写真を写真アプリに保存するために必要です。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
