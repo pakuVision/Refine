@@ -15,7 +15,6 @@ enum CameraError: Error {
     case photoLibraryPermissionDenied
 }
 
-@MainActor
 final class CameraController {
 
     let session = AVCaptureSession()
@@ -30,7 +29,7 @@ final class CameraController {
     // 📸 delegate를 강하게 유지 (중요!)
     private var inFlightDelegate: PhotoCaptureDelegate?
 
-    // MARK: - Start
+    private let sessionQueue = DispatchQueue(label: "camera.session.queue")
 
     func start() async throws {
         discoverDevices()
@@ -52,17 +51,17 @@ final class CameraController {
         session.addInput(input)
         session.addOutput(photoOutput)
 
-        // 📸 최고 품질 설정
         photoOutput.maxPhotoQualityPrioritization = .quality
-
-        // 📸 ProRAW 비활성화 (노이즈 문제로 HEIF 사용)
         photoOutput.isAppleProRAWEnabled = false
-        print("✅ HEIF 최고 품질 모드 활성화")
 
         currentInput = input
 
         session.commitConfiguration()
-        session.startRunning()
+
+        // ✅ 전용 큐에서 실행
+        sessionQueue.async {
+            self.session.startRunning()
+        }
     }
 
     // MARK: - Device Discovery

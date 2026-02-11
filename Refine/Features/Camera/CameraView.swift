@@ -51,7 +51,7 @@ struct CameraView: View {
                         .overlay {
                             Text(zoom.title)
                                 .foregroundColor(store.zoom == zoom ? .yellow : .white)
-                                .font(.system(size: 20, weight: .bold))
+                                .font(.system(size: 13, weight: .regular))
                         }
                 }
             }
