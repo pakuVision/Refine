@@ -39,14 +39,20 @@ struct CameraView: View {
     }
     
     private var zoomButtons: some View {
-        HStack(spacing: 16) {
-            ForEach(Zoom.allCases, id: \.self) { zoom in
+        HStack(spacing: 30) {
+            // 사용 가능한 줌만 표시
+            ForEach(store.availableZooms, id: \.self) { zoom in
                 Button {
                     store.send(.zoomTapped(zoom))
                 } label: {
-                    Text(zoom.title)
-                        .foregroundColor(store.state.zoom == zoom ? .yellow : .white)
-                        .font(.system(size: 14, weight: .bold))
+                    Circle()
+                        .fill(Color.gray)
+                        .frame(width: 30, height: 30)
+                        .overlay {
+                            Text(zoom.title)
+                                .foregroundColor(store.zoom == zoom ? .yellow : .white)
+                                .font(.system(size: 20, weight: .bold))
+                        }
                 }
             }
         }
@@ -109,7 +115,7 @@ final class PreviewUIView: UIView {
 
     private func configurePreviewLayer(with session: AVCaptureSession) {
         let layer = AVCaptureVideoPreviewLayer(session: session)
-        layer.videoGravity = .resizeAspectFill
+        layer.videoGravity = .resizeAspect
         layer.frame = bounds
 
         self.layer.addSublayer(layer)

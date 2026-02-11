@@ -6,31 +6,27 @@
 //
 
 import Foundation
+import AVFoundation
 
-enum Zoom: CaseIterable, Equatable {
-    case x0_5
-    case x1
-    case x2
-    case x4
-    case x8
+enum Zoom: Equatable, Hashable {
+    case ultraWide
+    case wide
+    case tele(CGFloat)   // 예: 4.0, 5.0
 
-    var value: CGFloat {
+    var displayValue: CGFloat {
         switch self {
-        case .x0_5: return 0.5
-        case .x1:   return 1
-        case .x2:   return 2
-        case .x4:   return 4
-        case .x8:   return 8
+        case .ultraWide: return 0.5
+        case .wide: return 1.0
+        case .tele(let value): return value
         }
     }
 
     var title: String {
         switch self {
-        case .x0_5: return "0.5"
-        case .x1:   return "1"
-        case .x2:   return "2"
-        case .x4:   return "4"
-        case .x8:   return "8"
+        case .ultraWide: return "0.5"
+        case .wide: return "1"
+        case .tele(let value):
+            return String(format: "%.0f", value)
         }
     }
 }
