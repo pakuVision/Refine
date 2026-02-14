@@ -20,6 +20,8 @@ final class CameraController: @unchecked Sendable {
     private var currentInput: AVCaptureDeviceInput?
 
     private var tripleDevice: AVCaptureDevice?
+    private var ultraWideDevice: AVCaptureDevice?
+    private var wideDevice: AVCaptureDevice?
     private var teleDevice: AVCaptureDevice?
 
     private var isTeleLocked = false
@@ -31,7 +33,7 @@ final class CameraController: @unchecked Sendable {
 
     func start() async throws {
         try await runOnSessionQueue {
-            // 1) pick best initial device (prefer virtual triple)
+            // Virtual device 사용 (자동 렌즈 전환)
             let initialDevice =
                 AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) ??
                 AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) ??
@@ -40,6 +42,8 @@ final class CameraController: @unchecked Sendable {
             guard let initialDevice else { throw CameraError.deviceNotFound }
 
             self.tripleDevice = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
+            self.ultraWideDevice = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back)
+            self.wideDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
             self.teleDevice = AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back)
 
             self.device = initialDevice
@@ -111,11 +115,10 @@ final class CameraController: @unchecked Sendable {
 
     func setZoomButton(_ value: CGFloat) async {
         await runOnSessionQueueNoThrow {
-            guard let device = self.device else { return }
-
             if self.isTeleLocked {
-                // Tele lock: tele 내부 digital zoom만
-                guard device.deviceType == .builtInTelephotoCamera else { return }
+                // Tele Lock: 망원 렌즈 내부 디지털 줌만
+                guard let device = self.device,
+                      device.deviceType == .builtInTelephotoCamera else { return }
 
                 let target: CGFloat
                 switch value {
@@ -127,17 +130,46 @@ final class CameraController: @unchecked Sendable {
                 return
             }
 
-            // Auto / virtual device mapping (당신 기존 매핑 유지)
-            let target: CGFloat
+            // 🔥 Auto 모드: 버튼마다 단일 렌즈로 전환 (순정 카메라 방식)
+            var targetDevice: AVCaptureDevice?
+
             switch value {
-            case 0.5: target = 1.0
-            case 1.0: target = 2.0
-            case 2.0: target = 4.0
-            case 4.0: target = 8.0
-            case 8.0: target = 16.0
-            default:  target = value
+            case 0.5:
+                // Ultra Wide 단일 렌즈
+                targetDevice = self.ultraWideDevice
+            case 1.0, 2.0:
+                // Wide 단일 렌즈 (1x, 2x는 Wide 디지털 줌)
+                targetDevice = self.wideDevice
+            case 4.0, 8.0:
+                // Tele 단일 렌즈 (4x, 8x는 Tele 디지털 줌)
+                targetDevice = self.teleDevice
+            default:
+                targetDevice = self.wideDevice
             }
-            self.setZoomLocked(device: device, zoom: target)
+
+            guard let newDevice = targetDevice else { return }
+
+            // Input 전환
+            self.switchInputLocked(to: newDevice)
+
+            // 48MP 포맷 적용
+            self.applyBest48MPFormatIfPossible(to: newDevice)
+            self.syncMaxPhotoDimensions(for: newDevice)
+
+            // 각 렌즈 내부에서 디지털 줌
+            let internalZoom: CGFloat
+            switch value {
+            case 0.5: internalZoom = 1.0  // Ultra Wide 기본
+            case 1.0: internalZoom = 1.0  // Wide 기본
+            case 2.0: internalZoom = 2.0  // Wide 2배 디지털 줌
+            case 4.0: internalZoom = 1.0  // Tele 기본
+            case 8.0: internalZoom = 2.0  // Tele 2배 디지털 줌
+            default:  internalZoom = 1.0
+            }
+
+            self.setZoomLocked(device: newDevice, zoom: internalZoom)
+
+            print("🎯 렌즈 전환: \(newDevice.deviceType.rawValue), 내부 줌: \(internalZoom)x")
         }
     }
 
@@ -149,20 +181,36 @@ final class CameraController: @unchecked Sendable {
     }
 
     func capture() async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            
+        // 🔥 촬영 직전에 48MP 포맷 재적용
+        await runOnSessionQueueNoThrow {
+            guard let device = self.device else { return }
+
+            print("📸 촬영 준비 중...")
+            print("   - Device: \(device.deviceType.rawValue)")
+            print("   - Zoom: \(device.videoZoomFactor)")
+
+            // 현재 줌 레벨에서 48MP 포맷 재적용
+            self.applyBest48MPFormatIfPossible(to: device)
+            self.syncMaxPhotoDimensions(for: device)
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+
             let delegate = PhotoCaptureDelegate { [weak self] result in
                 self?.inFlightDelegate = nil
                 continuation.resume(with: result)
             }
-            
+
             self.inFlightDelegate = delegate
-            
+
             let settings = AVCapturePhotoSettings()
             settings.photoQualityPrioritization = .quality
-            settings.isHighResolutionPhotoEnabled = true
             settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
-            
+
+            let dims = settings.maxPhotoDimensions
+            let mp = Double(dims.width * dims.height) / 1_000_000.0
+            print("   - 설정 해상도: \(dims.width)x\(dims.height) (~\(String(format: "%.1f", mp))MP)")
+
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }
@@ -218,6 +266,8 @@ final class CameraController: @unchecked Sendable {
         var bestFormat: AVCaptureDevice.Format?
         var bestPixels = 0
 
+        print("🔍 [\(device.deviceType.rawValue)] 48MP 포맷 검색 중...")
+
         for format in device.formats {
             for dim in format.supportedMaxPhotoDimensions {
                 let pixels = Int(dim.width) * Int(dim.height)
@@ -225,24 +275,33 @@ final class CameraController: @unchecked Sendable {
                 if mp >= 48.0 && pixels > bestPixels {
                     bestPixels = pixels
                     bestFormat = format
+                    print("   ✓ 48MP 포맷 발견: \(dim.width)x\(dim.height) (~\(String(format: "%.1f", mp))MP)")
                 }
             }
         }
 
-        guard let bestFormat else { return }
+        guard let bestFormat else {
+            print("   ⚠️ 48MP 포맷 없음 - 현재 포맷 유지")
+            return
+        }
 
         do {
             try device.lockForConfiguration()
             device.activeFormat = bestFormat
             device.unlockForConfiguration()
+            print("   ✅ 48MP 포맷으로 전환 완료")
         } catch {
-            // ignore
+            print("   ❌ 포맷 전환 실패: \(error)")
         }
     }
 
     private func syncMaxPhotoDimensions(for device: AVCaptureDevice) {
         let supported = device.activeFormat.supportedMaxPhotoDimensions
         guard let best = supported.max(by: { ($0.width * $0.height) < ($1.width * $1.height) }) else { return }
+
+        let mp = Double(best.width * best.height) / 1_000_000.0
+        print("📸 [\(device.deviceType.rawValue)] MaxPhotoDimensions 설정: \(best.width)x\(best.height) (~\(String(format: "%.1f", mp))MP)")
+
         self.photoOutput.maxPhotoDimensions = best
     }
 
@@ -320,6 +379,16 @@ final class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
             completion(.failure(CameraError.captureFailed))
             return
         }
+
+        // 🔍 실제 촬영된 해상도 확인
+        let dims = photo.resolvedSettings.photoDimensions
+        let mp = Double(dims.width * dims.height) / 1_000_000.0
+        let sizeMB = Double(data.count) / 1_000_000.0
+
+        print("✅ 촬영 완료")
+        print("   - 해상도: \(dims.width)x\(dims.height) (~\(String(format: "%.1f", mp))MP)")
+        print("   - 파일 크기: \(String(format: "%.2f", sizeMB))MB")
+
         completion(.success(data))
     }
 }
