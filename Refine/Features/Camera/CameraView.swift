@@ -13,7 +13,8 @@ struct CameraView: View {
     let store: StoreOf<CameraFeature>
     @Dependency(\.cameraClient) var cameraClient
     @State private var showFlash: Bool = false
-    
+    @State private var baseZoom: CGFloat = 2.0  // 🔥 기본 줌 = .wide의 actualZoomFactor
+
     var body: some View {
 
         ZStack {
@@ -29,21 +30,52 @@ struct CameraView: View {
             VStack {
                 Spacer()
                 zoomButtons
+                
+                HStack {
+                    Button {
+                        store.send(.teleLockToggled(true))
+                    } label: {
+                        Text("Tele Lock")
+                            .foregroundColor(.yellow)
+                    }
+                    
+                    Button {
+                        store.send(.teleLockToggled(false))
+                    } label: {
+                        Text("Auto")
+                            .foregroundColor(.white)
+                    }
+                }
                 shutterButton
             }
         }
-        .animation(.easeOut(duration: 0.1), value: showFlash)
+        .gesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    let newZoom = baseZoom * value
+
+                    Task {
+                        await cameraClient.setZoomFactor(newZoom)
+                    }
+                }
+                .onEnded { value in
+                    baseZoom *= value
+                }
+        )
         .onAppear {
+            print("🔵 CameraView.onAppear")
             store.send(.onAppear)
         }
     }
-    
+
     private var zoomButtons: some View {
         HStack(spacing: 30) {
             // 사용 가능한 줌만 표시
             ForEach(store.availableZooms, id: \.self) { zoom in
                 Button {
                     store.send(.zoomTapped(zoom))
+                    // 🔥 버튼 줌과 핀치 제스처 동기화
+                    baseZoom = zoom.displayValue
                 } label: {
                     Circle()
                         .fill(Color.gray)
@@ -115,21 +147,38 @@ final class PreviewUIView: UIView {
 
     private func configurePreviewLayer(with session: AVCaptureSession) {
         let layer = AVCaptureVideoPreviewLayer(session: session)
+
         layer.videoGravity = .resizeAspect
-        layer.frame = bounds
+
+        // 🎯 초기 frame은 layoutSubviews에서 설정됨
+        layer.frame = .zero
 
         self.layer.addSublayer(layer)
         self.previewLayer = layer
+
+        // 디버그 로그
+        print("📹 PreviewLayer 생성됨")
+        print("   - Session running: \(session.isRunning)")
+        print("   - Inputs: \(session.inputs.count)")
+        print("   - Outputs: \(session.outputs.count)")
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+
+        // 🎯 레이아웃 시 프레임 업데이트
         previewLayer?.frame = bounds
+
+        if bounds != .zero {
+            print("📐 PreviewLayer frame 업데이트: \(bounds)")
+        }
     }
 
     /// session이 바뀌었을 때만 교체
     func updateSessionIfNeeded(_ session: AVCaptureSession) {
         guard previewLayer?.session !== session else { return }
+
+        print("🔄 Session 교체")
         previewLayer?.session = session
         setNeedsLayout()
     }

@@ -13,8 +13,10 @@ struct CameraClient {
     var requestPermission: @Sendable () async throws -> Bool
     var startSession: @Sendable () async throws -> Void
     var setZoom: @Sendable (CGFloat) async -> Void
+    var setZoomFactor: @Sendable (CGFloat) async -> Void
+    var setTeleLock: @Sendable (Bool) async -> Void
     var capture: @Sendable () async throws -> Data
-    var getSession: @Sendable () -> AVCaptureSession = { AVCaptureSession() }
+    var getSession: () -> AVCaptureSession = { AVCaptureSession() }
     var saveToPhotoLibrary: @Sendable (Data) async throws -> Void
     var getAvailableZooms: @Sendable () async throws -> [Zoom]
 }
@@ -28,13 +30,10 @@ extension DependencyValues {
 
 extension CameraClient: DependencyKey {
 
-    @MainActor
     private static let sharedController = CameraController()
 
     static var liveValue: CameraClient {
         CameraClient(
-
-            // MARK: - Camera Permission
 
             requestPermission: {
                 switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -47,58 +46,37 @@ extension CameraClient: DependencyKey {
                 }
             },
 
-            // MARK: - Start Session
-
             startSession: {
                 try await sharedController.start()
             },
-
-            // MARK: - Zoom
 
             setZoom: { value in
                 await sharedController.setZoomButton(value)
             },
 
-            // MARK: - Capture (48MP HEIF)
-
-            capture: {
-                try await sharedController.captureProcessed()
+            setZoomFactor: { factor in
+                await sharedController.setZoomFactor(factor)
             },
-
-            // MARK: - Get Session
+            setTeleLock: { enabled in
+                await sharedController.setTeleLock(enabled)
+            },
+            capture: {
+                try await sharedController.capture()
+            },
 
             getSession: {
                 sharedController.session
             },
 
-            // MARK: - Save Photo
-
             saveToPhotoLibrary: { data in
                 try await savePhotoToLibrary(data)
             },
 
-            // MARK: - Zoom Levels
-
             getAvailableZooms: {
-                var zooms: [Zoom] = []
-
-                if sharedController.hasUltraWide {
-                    zooms.append(.ultraWide)
-                }
-
-                zooms.append(contentsOf: [
-                    .wide,
-                    .tele(2),
-                    .tele(4),
-                    .tele(8)
-                ])
-
-                return zooms
+                [.ultraWide, .wide, .tele(2), .tele(4), .tele(8)]
             }
         )
     }
-
-    // MARK: - Save to Photo Library
 
     @MainActor
     private static func savePhotoToLibrary(_ imageData: Data) async throws {
@@ -117,7 +95,5 @@ extension CameraClient: DependencyKey {
             let creationRequest = PHAssetCreationRequest.forAsset()
             creationRequest.addResource(with: .photo, data: imageData, options: nil)
         }
-
-        print("✅ 48MP 사진 저장 완료")
     }
 }
