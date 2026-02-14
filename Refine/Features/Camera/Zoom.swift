@@ -29,23 +29,19 @@ enum Zoom: Equatable, Hashable {
         }
     }
 
-    /// 실제 카메라 줌 팩터 (렌즈 전환 지점 기준)
-    /// 렌즈 전환 지점: [2.0, 8.0]
-    var actualZoomFactor: CGFloat {
+    /// 각 단일 렌즈의 내부 줌 팩터 (핀치 제스처 동기화용)
+    var internalZoomFactor: CGFloat {
         switch self {
         case .ultraWide:
-            return 1.0  // 🔥 Ultra Wide 최소 줌 (순정 0.5x와 동일)
+            return 1.0  // Ultra Wide 기본
         case .wide:
-            return 2.0  // Wide 메인 (전환 지점)
+            return 1.0  // Wide 기본
         case .tele(let value):
-            // 2x → 4.0 (Wide 영역)
-            // 4x → 8.0 (Tele 전환 지점)
-            // 8x → 16.0 (Tele 영역)
             switch value {
-            case 2.0: return 4.0
-            case 4.0: return 8.0
-            case 8.0: return 16.0
-            default: return value * 2.0  // 기본 매핑
+            case 2.0: return 2.0  // Wide 렌즈에서 2배 디지털 줌
+            case 4.0: return 1.0  // Tele 렌즈 기본
+            case 8.0: return 2.0  // Tele 렌즈에서 2배 디지털 줌
+            default: return 1.0
             }
         }
     }

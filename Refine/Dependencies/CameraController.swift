@@ -69,12 +69,19 @@ final class CameraController: @unchecked Sendable {
             // 3) quality
             self.photoOutput.maxPhotoQualityPrioritization = .quality
 
-            // 4) apply best 48MP (if supported) + sync maxPhotoDimensions
-            self.applyBest48MPFormatIfPossible(to: initialDevice)
-            self.syncMaxPhotoDimensions(for: initialDevice)
+            // 4) 모든 렌즈의 48MP 포맷 미리 설정 (전환 속도 향상)
+            if let ultraWide = self.ultraWideDevice {
+                self.applyBest48MPFormatIfPossible(to: ultraWide)
+            }
+            if let wide = self.wideDevice {
+                self.applyBest48MPFormatIfPossible(to: wide)
+            }
+            if let tele = self.teleDevice {
+                self.applyBest48MPFormatIfPossible(to: tele)
+            }
 
-            // 5) set default to “Wide” on virtual device (if available)
-            self.setVirtualToWideIfPossible(device: initialDevice)
+            // 5) 현재 디바이스의 maxPhotoDimensions 설정
+            self.syncMaxPhotoDimensions(for: initialDevice)
 
             self.session.commitConfiguration()
 
@@ -132,44 +139,68 @@ final class CameraController: @unchecked Sendable {
 
             // 🔥 Auto 모드: 버튼마다 단일 렌즈로 전환 (순정 카메라 방식)
             var targetDevice: AVCaptureDevice?
+            var internalZoom: CGFloat = 1.0
 
             switch value {
             case 0.5:
-                // Ultra Wide 단일 렌즈
                 targetDevice = self.ultraWideDevice
-            case 1.0, 2.0:
-                // Wide 단일 렌즈 (1x, 2x는 Wide 디지털 줌)
+                internalZoom = 1.0
+            case 1.0:
                 targetDevice = self.wideDevice
-            case 4.0, 8.0:
-                // Tele 단일 렌즈 (4x, 8x는 Tele 디지털 줌)
+                internalZoom = 1.0
+            case 2.0:
+                targetDevice = self.wideDevice
+                internalZoom = 2.0
+            case 4.0:
                 targetDevice = self.teleDevice
+                internalZoom = 1.0
+            case 8.0:
+                targetDevice = self.teleDevice
+                internalZoom = 2.0
             default:
                 targetDevice = self.wideDevice
+                internalZoom = 1.0
             }
 
             guard let newDevice = targetDevice else { return }
 
-            // Input 전환
-            self.switchInputLocked(to: newDevice)
-
-            // 48MP 포맷 적용
-            self.applyBest48MPFormatIfPossible(to: newDevice)
-            self.syncMaxPhotoDimensions(for: newDevice)
-
-            // 각 렌즈 내부에서 디지털 줌
-            let internalZoom: CGFloat
-            switch value {
-            case 0.5: internalZoom = 1.0  // Ultra Wide 기본
-            case 1.0: internalZoom = 1.0  // Wide 기본
-            case 2.0: internalZoom = 2.0  // Wide 2배 디지털 줌
-            case 4.0: internalZoom = 1.0  // Tele 기본
-            case 8.0: internalZoom = 2.0  // Tele 2배 디지털 줌
-            default:  internalZoom = 1.0
+            // 같은 디바이스면 줌만 변경
+            if self.device === newDevice {
+                self.setZoomLocked(device: newDevice, zoom: internalZoom)
+                return
             }
 
-            self.setZoomLocked(device: newDevice, zoom: internalZoom)
+            // 🔥 빠른 전환: 모든 작업을 하나의 configuration 블록에서 처리
+            self.session.beginConfiguration()
 
-            print("🎯 렌즈 전환: \(newDevice.deviceType.rawValue), 내부 줌: \(internalZoom)x")
+            // 1) Input 교체
+            if let currentInput = self.currentInput {
+                self.session.removeInput(currentInput)
+            }
+
+            do {
+                let newInput = try AVCaptureDeviceInput(device: newDevice)
+                if self.session.canAddInput(newInput) {
+                    self.session.addInput(newInput)
+                    self.currentInput = newInput
+                    self.device = newDevice
+
+                    // 2) 줌 설정 (configuration 안에서)
+                    try newDevice.lockForConfiguration()
+                    newDevice.videoZoomFactor = internalZoom
+                    newDevice.unlockForConfiguration()
+
+                    // 3) MaxPhotoDimensions 동기화
+                    let supported = newDevice.activeFormat.supportedMaxPhotoDimensions
+                    if let best = supported.max(by: { ($0.width * $0.height) < ($1.width * $1.height) }) {
+                        self.photoOutput.maxPhotoDimensions = best
+                    }
+                }
+            } catch {
+                // 실패 시 원래대로 복구
+            }
+
+            self.session.commitConfiguration()
         }
     }
 
@@ -266,8 +297,6 @@ final class CameraController: @unchecked Sendable {
         var bestFormat: AVCaptureDevice.Format?
         var bestPixels = 0
 
-        print("🔍 [\(device.deviceType.rawValue)] 48MP 포맷 검색 중...")
-
         for format in device.formats {
             for dim in format.supportedMaxPhotoDimensions {
                 let pixels = Int(dim.width) * Int(dim.height)
@@ -275,33 +304,24 @@ final class CameraController: @unchecked Sendable {
                 if mp >= 48.0 && pixels > bestPixels {
                     bestPixels = pixels
                     bestFormat = format
-                    print("   ✓ 48MP 포맷 발견: \(dim.width)x\(dim.height) (~\(String(format: "%.1f", mp))MP)")
                 }
             }
         }
 
-        guard let bestFormat else {
-            print("   ⚠️ 48MP 포맷 없음 - 현재 포맷 유지")
-            return
-        }
+        guard let bestFormat else { return }
 
         do {
             try device.lockForConfiguration()
             device.activeFormat = bestFormat
             device.unlockForConfiguration()
-            print("   ✅ 48MP 포맷으로 전환 완료")
         } catch {
-            print("   ❌ 포맷 전환 실패: \(error)")
+            // Silent fail
         }
     }
 
     private func syncMaxPhotoDimensions(for device: AVCaptureDevice) {
         let supported = device.activeFormat.supportedMaxPhotoDimensions
         guard let best = supported.max(by: { ($0.width * $0.height) < ($1.width * $1.height) }) else { return }
-
-        let mp = Double(best.width * best.height) / 1_000_000.0
-        print("📸 [\(device.deviceType.rawValue)] MaxPhotoDimensions 설정: \(best.width)x\(best.height) (~\(String(format: "%.1f", mp))MP)")
-
         self.photoOutput.maxPhotoDimensions = best
     }
 

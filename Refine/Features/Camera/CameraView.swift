@@ -13,7 +13,7 @@ struct CameraView: View {
     let store: StoreOf<CameraFeature>
     @Dependency(\.cameraClient) var cameraClient
     @State private var showFlash: Bool = false
-    @State private var baseZoom: CGFloat = 2.0  // 🔥 기본 줌 = .wide의 actualZoomFactor
+    @State private var baseZoom: CGFloat = 1.0  // 🔥 기본 줌 = Wide 렌즈 내부 줌
 
     var body: some View {
 
@@ -74,8 +74,8 @@ struct CameraView: View {
             ForEach(store.availableZooms, id: \.self) { zoom in
                 Button {
                     store.send(.zoomTapped(zoom))
-                    // 🔥 버튼 줌과 핀치 제스처 동기화
-                    baseZoom = zoom.displayValue
+                    // 🔥 각 렌즈의 내부 줌으로 동기화 (핀치 제스처 자연스럽게)
+                    baseZoom = zoom.internalZoomFactor
                 } label: {
                     Circle()
                         .fill(Color.gray)
