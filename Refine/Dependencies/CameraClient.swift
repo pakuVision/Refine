@@ -2,8 +2,6 @@
 //  CameraClient.swift
 //  Refine
 //
-//  Created by boardguy.vision on 2026/02/09.
-//
 
 import ComposableArchitecture
 import AVFoundation
@@ -18,7 +16,7 @@ struct CameraClient {
     var capture: @Sendable () async throws -> Data
     var getSession: @Sendable () -> AVCaptureSession = { AVCaptureSession() }
     var saveToPhotoLibrary: @Sendable (Data) async throws -> Void
-    var getAvailableZooms: @Sendable () async throws -> [Zoom] = { [] }
+    var getAvailableZooms: @Sendable () async throws -> [Zoom]
 }
 
 extension DependencyValues {
@@ -35,6 +33,9 @@ extension CameraClient: DependencyKey {
 
     static var liveValue: CameraClient {
         CameraClient(
+
+            // MARK: - Camera Permission
+
             requestPermission: {
                 switch AVCaptureDevice.authorizationStatus(for: .video) {
                 case .authorized:
@@ -46,42 +47,50 @@ extension CameraClient: DependencyKey {
                 }
             },
 
+            // MARK: - Start Session
+
             startSession: {
                 try await sharedController.start()
             },
 
-            // ✅ 렌즈 고정용
+            // MARK: - Zoom
+
             setZoom: { value in
                 await sharedController.setZoomButton(value)
             },
+
+            // MARK: - Capture (48MP HEIF)
 
             capture: {
                 try await sharedController.captureProcessed()
             },
 
+            // MARK: - Get Session
+
             getSession: {
                 sharedController.session
             },
+
+            // MARK: - Save Photo
 
             saveToPhotoLibrary: { data in
                 try await savePhotoToLibrary(data)
             },
 
-            // ✅ 사용 가능한 줌 레벨 동적 반환
+            // MARK: - Zoom Levels
+
             getAvailableZooms: {
                 var zooms: [Zoom] = []
 
-                // Ultra Wide 카메라가 있으면 0.5x 추가
-                if await sharedController.hasUltraWide {
+                if sharedController.hasUltraWide {
                     zooms.append(.ultraWide)
                 }
 
-                // 기본 줌 레벨
                 zooms.append(contentsOf: [
-                    .wide,          // 1x
-                    .tele(2),       // 2x (Wide 2x)
-                    .tele(4),       // 4x (Tele 기본)
-                    .tele(8)        // 8x (Tele 2배)
+                    .wide,
+                    .tele(2),
+                    .tele(4),
+                    .tele(8)
                 ])
 
                 return zooms
@@ -89,48 +98,26 @@ extension CameraClient: DependencyKey {
         )
     }
 
-    // MARK: - Save Photo
+    // MARK: - Save to Photo Library
 
     @MainActor
     private static func savePhotoToLibrary(_ imageData: Data) async throws {
-        print("📸 [1/3] 사진 저장 시작 (크기: \(imageData.count) bytes)")
 
-        // 데이터 유효성 확인
         guard UIImage(data: imageData) != nil else {
-            print("❌ 이미지 데이터가 손상되었습니다")
             throw CameraError.captureFailed
         }
 
-        // 권한 요청
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        print("📸 [2/3] Photo Library 권한 상태: \(status.rawValue) (\(statusDescription(status)))")
 
         guard status == .authorized || status == .limited else {
-            print("❌ Photo Library 권한 거부됨")
             throw CameraError.photoLibraryPermissionDenied
         }
 
-        // 📸 원본 데이터를 직접 저장 (메타데이터 보존)
-        do {
-            try await PHPhotoLibrary.shared().performChanges {
-                let creationRequest = PHAssetCreationRequest.forAsset()
-                creationRequest.addResource(with: .photo, data: imageData, options: nil)
-            }
-            print("✅ [3/3] 사진이 메타데이터와 함께 저장되었습니다!")
-        } catch {
-            print("❌ Photo Library 저장 실패: \(error.localizedDescription)")
-            throw error
+        try await PHPhotoLibrary.shared().performChanges {
+            let creationRequest = PHAssetCreationRequest.forAsset()
+            creationRequest.addResource(with: .photo, data: imageData, options: nil)
         }
-    }
 
-    private static func statusDescription(_ status: PHAuthorizationStatus) -> String {
-        switch status {
-        case .authorized: return "authorized"
-        case .limited: return "limited"
-        case .denied: return "denied"
-        case .restricted: return "restricted"
-        case .notDetermined: return "notDetermined"
-        @unknown default: return "unknown"
-        }
+        print("✅ 48MP 사진 저장 완료")
     }
 }

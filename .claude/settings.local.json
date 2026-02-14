@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(plutil:*)"
+      "Bash(plutil:*)",
+      "Bash(xcodebuild:*)"
     ]
   }
 }
