@@ -245,9 +245,31 @@ final class CameraController: @unchecked Sendable {
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }
+    
+    func getZoomRange() async -> ClosedRange<CGFloat>? {
+        await runOnSessionQueueNoThrowReturn {
+            guard let device = self.device else { return nil }
+
+            let minZoom = device.minAvailableVideoZoomFactor
+            let hardwareMax = device.activeFormat.videoMaxZoomFactor
+            let maxZoom = min(hardwareMax, 40.0)
+
+            return minZoom...maxZoom
+        }
+    }
 
     // MARK: - Private (sessionQueue only)
 
+    private func runOnSessionQueueNoThrowReturn<T>(
+        _ work: @escaping () -> T
+    ) async -> T {
+        await withCheckedContinuation { cont in
+            sessionQueue.async {
+                cont.resume(returning: work())
+            }
+        }
+    }
+    
     private func switchInputLocked(to newDevice: AVCaptureDevice) {
         self.session.beginConfiguration()
 
@@ -274,7 +296,10 @@ final class CameraController: @unchecked Sendable {
 
     private func setZoomLocked(device: AVCaptureDevice, zoom: CGFloat) {
         let minZoom = device.minAvailableVideoZoomFactor
-        let maxZoom = device.activeFormat.videoMaxZoomFactor
+        
+        let hardwareMax = device.activeFormat.videoMaxZoomFactor
+        let maxZoom = min(hardwareMax, 40.0)
+      
         let finalZoom = min(max(zoom, minZoom), maxZoom)
 
         do {

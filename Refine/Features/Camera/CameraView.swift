@@ -13,7 +13,9 @@ struct CameraView: View {
     let store: StoreOf<CameraFeature>
     @Dependency(\.cameraClient) var cameraClient
     @State private var showFlash: Bool = false
-    @State private var baseZoom: CGFloat = 1.0  // 🔥 기본 줌 = Wide 렌즈 내부 줌
+    @State private var gestureBaseZoom: CGFloat = 1.0  // 기본 줌 = Wide 렌즈 내부 줌
+    @State private var zoomRange: ClosedRange<CGFloat> = 1.0...40.0
+
 
     var body: some View {
 
@@ -23,7 +25,7 @@ struct CameraView: View {
 
             // 플래시 효과
             if showFlash {
-                Color.white.opacity(0.6)
+                Color.white.opacity(0.5)
                     .ignoresSafeArea()
             }
 
@@ -50,18 +52,29 @@ struct CameraView: View {
             }
         }
         .gesture(
+            // 제스처는 value = 1.0 부터시작
             MagnificationGesture()
                 .onChanged { value in
-                    let newZoom = baseZoom * value
-
+                    let clampedZoom = self.clampedZoom(value)
+                    
                     Task {
-                        await cameraClient.setZoomFactor(newZoom)
+                        // Factor - 곱셈계수
+                        // zoom factor - 줌곱셈계수를 셋팅
+                        await cameraClient.setZoomFactor(clampedZoom)
                     }
                 }
                 .onEnded { value in
-                    baseZoom *= value
+                    // 핀치가 끝난 시점에서 다시 시작하도록 값을 보유
+                    gestureBaseZoom = self.clampedZoom(value)
                 }
         )
+        .onChange(of: store.zoom) {
+            Task {
+                if let range = await cameraClient.getZoomRange() {
+                    zoomRange = range
+                }
+            }
+        }
         .onAppear {
             print("🔵 CameraView.onAppear")
             store.send(.onAppear)
@@ -75,7 +88,7 @@ struct CameraView: View {
                 Button {
                     store.send(.zoomTapped(zoom))
                     // 🔥 각 렌즈의 내부 줌으로 동기화 (핀치 제스처 자연스럽게)
-                    baseZoom = zoom.internalZoomFactor
+                    gestureBaseZoom = self.clampedZoom(zoom.internalZoomFactor)
                 } label: {
                     Circle()
                         .fill(Color.gray)
@@ -110,6 +123,21 @@ struct CameraView: View {
                 .strokeBorder(.white, lineWidth: 4)
                 .frame(width: 72, height: 72)
         }
+    }
+}
+
+extension CameraView {
+    // clamped - 어떤 값을 일정 범위 안에 "고정하다"
+    // 핀치제스처를 설정한 범위내의 값으로 줌 인아웃 하도록
+    private func clampedZoom(_ valueOfMagnification: CGFloat) -> CGFloat {
+        let rawZoom = gestureBaseZoom * valueOfMagnification
+        
+        // rawZoom이 zoomRange를 벗어나지 못하게 함
+        let clampedZoom = min(
+                            // 1.0                    // 40.0
+            max(rawZoom,zoomRange.lowerBound), zoomRange.upperBound
+        )
+        return clampedZoom
     }
 }
 

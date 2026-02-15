@@ -9,11 +9,13 @@ import Photos
 import UIKit
 
 @DependencyClient
-struct CameraClient {
+struct CameraClient: Sendable {
     var requestPermission: @Sendable () async throws -> Bool
     var startSession: @Sendable () async throws -> Void
     var setZoom: @Sendable (CGFloat) async -> Void
     var setZoomFactor: @Sendable (CGFloat) async -> Void
+    var getZoomRange: @Sendable () async -> ClosedRange<CGFloat>?
+
     var setTeleLock: @Sendable (Bool) async -> Void
     var capture: @Sendable () async throws -> Data
     var getSession: () -> AVCaptureSession = { AVCaptureSession() }
@@ -56,6 +58,9 @@ extension CameraClient: DependencyKey {
 
             setZoomFactor: { factor in
                 await sharedController.setZoomFactor(factor)
+            },
+            getZoomRange: {
+                await sharedController.getZoomRange()
             },
             setTeleLock: { enabled in
                 await sharedController.setTeleLock(enabled)
